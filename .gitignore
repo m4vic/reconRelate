@@ -1,0 +1,33 @@
+# Local environments and Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+.reconrelate/
+
+# Runtime data and generated reports
+*.db
+*.db-shm
+*.db-wal
+artifacts/
+pytest-cache-files-*/
+
+# Internal planning notes — not for the public repo
+REBUILD_PLAN.md
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

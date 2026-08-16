@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "synthetic-example-v1",
+  "root_domain": "example.com",
+  "labels": [
+    {
+      "domain": "example.net",
+      "classification": "positive",
+      "relationship": "synthetic_owned",
+      "source_refs": ["fixture://synthetic-positive"]
+    },
+    {
+      "domain": "example.org",
+      "classification": "negative",
+      "relationship": "synthetic_unrelated",
+      "source_refs": ["fixture://synthetic-negative"]
+    }
+  ]
+}

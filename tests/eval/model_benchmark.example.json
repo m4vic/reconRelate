@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "synthetic-model-smoke-v1",
+  "cases": [
+    "model_cases/synthetic_ambiguous.json"
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "case_id": "automattic-v1",
+  "root_domain": "automattic.com",
+  "labels": [
+    {
+      "domain": "wordpress.com",
+      "classification": "positive",
+      "relationship": "owned_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Automattic", "https://automattic.com/about/"]
+    },
+    {
+      "domain": "woocommerce.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/WooCommerce"]
+    },
+    {
+      "domain": "tumblr.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Tumblr"]
+    },
+    {
+      "domain": "jetpack.com",
+      "classification": "positive",
+      "relationship": "owned_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Automattic"]
+    },
+    {
+      "domain": "akismet.com",
+      "classification": "positive",
+      "relationship": "owned_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Automattic"]
+    },
+    {
+      "domain": "gravatar.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Gravatar"]
+    },
+    {
+      "domain": "pocketcasts.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Pocket_Casts"]
+    },
+    {
+      "domain": "dayoneapp.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Day_One_(software)"]
+    },
+    {
+      "domain": "beeper.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Beeper_(software)"]
+    },
+    {
+      "domain": "simplenote.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Simplenote"]
+    },
+    {
+      "domain": "longreads.com",
+      "classification": "positive",
+      "relationship": "acquired_current",
+      "source_refs": ["https://en.wikipedia.org/wiki/Automattic"]
+    },
+    {
+      "domain": "yahooinc.com",
+      "classification": "negative",
+      "relationship": "former_owner_of_subsidiary",
+      "source_refs": ["https://en.wikipedia.org/wiki/Tumblr"]
+    }
+  ]
+}

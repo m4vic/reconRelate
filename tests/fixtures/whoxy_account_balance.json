@@ -1,0 +1,8 @@
+{
+  "_fixture_source": "https://www.whoxy.com/sample/accountBalanceSchema.json",
+  "_fixture_captured": "2026-08-14",
+  "status": 1,
+  "live_whois_balance": 900,
+  "whois_history_balance": 800,
+  "reverse_whois_balance": 700
+}

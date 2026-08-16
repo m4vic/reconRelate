@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "case_id": "synthetic-example-org-v1",
+  "domain": "example.com",
+  "corpus_class": "synthetic",
+  "evidence": {
+    "domain": "example.com",
+    "whois": {
+      "registrant_org": "",
+      "nameservers": ["a.iana-servers.net"],
+      "creation_date": "1995-08-14"
+    },
+    "basic_intel": {
+      "title": "Example Domain",
+      "description": "This reserved documentation domain is maintained by Internet Assigned Numbers Authority.",
+      "aliases": [],
+      "legal_entities": []
+    },
+    "subdomains": []
+  },
+  "expected_abstain": false,
+  "expected_pivots": [
+    {
+      "id_type": "org",
+      "value": "Internet Assigned Numbers Authority",
+      "source_refs": ["fixture://iana-example-domain"]
+    }
+  ]
+}

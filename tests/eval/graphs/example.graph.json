@@ -1,0 +1,17 @@
+{
+  "run": {
+    "id": "synthetic-run",
+    "root_domain": "example.com",
+    "status": "completed"
+  },
+  "nodes": [
+    {"id": "1", "node_type": "domain", "value_norm": "example.com"},
+    {"id": "2", "node_type": "domain", "value_norm": "example.net"},
+    {"id": "3", "node_type": "domain", "value_norm": "example.org"},
+    {"id": "4", "node_type": "domain", "value_norm": "example.invalid"},
+    {"id": "5", "node_type": "identifier", "value_norm": "unused@example.com"}
+  ],
+  "edges": [],
+  "lineage": [],
+  "pivot_decisions": []
+}

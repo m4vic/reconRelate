@@ -1,0 +1,6 @@
+{
+  "_fixture_source": "https://www.whoxy.com/sample/apiError.json",
+  "_fixture_captured": "2026-08-14",
+  "status": 0,
+  "status_reason": "Invalid API Key"
+}

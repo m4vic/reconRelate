@@ -1,0 +1,15 @@
+{
+  "_fixture_source": "https://www.whoxy.com/sample/reverseWhoisMicro.json",
+  "_fixture_captured": "2026-08-14",
+  "status": 1,
+  "api_query": "reverse_whois",
+  "search_identifier": {"name": "Example Owner"},
+  "total_results": 2,
+  "total_pages": 1,
+  "current_page": 1,
+  "search_result": [
+    {"num": 1, "domain_name": "Example.com", "query_time": "2014-08-23 06:10:05"},
+    {"num": 2, "domain_name": "example.net", "query_time": "2015-01-14 10:05:05"}
+  ],
+  "api_execution_time": 0.02
+}

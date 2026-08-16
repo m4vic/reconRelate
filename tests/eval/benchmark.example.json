@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "synthetic-mechanics-v1",
+  "comparisons": [
+    {
+      "case": "cases/example.json",
+      "baseline": "graphs/example.graph.json",
+      "candidate": "graphs/example.graph.json"
+    }
+  ]
+}

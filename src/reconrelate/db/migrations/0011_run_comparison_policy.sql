@@ -1,0 +1,4 @@
+ALTER TABLE runs ADD COLUMN run_mode TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE runs ADD COLUMN llm_model TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE runs ADD COLUMN llm_policy_version TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE runs ADD COLUMN cache_mode TEXT NOT NULL DEFAULT 'reuse';
