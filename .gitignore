@@ -25,6 +25,8 @@ pytest-cache-files-*/
 
 # Internal planning notes — not for the public repo
 REBUILD_PLAN.md
+PRODUCTION_IMPLEMENTATION_PLAN.md
+AGENTIC_ARCHITECTURE_PLAN.md
 
 # Editors and operating systems
 .idea/

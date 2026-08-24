@@ -29,6 +29,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
 
 def main():
     if len(sys.argv) < 2:
+        if sys.stdin.isatty():
+            from reconrelate.cli.shell import run_shell
+            sys.exit(run_shell())
         print("Usage: python run.py <domain-or-url>")
         print("Example: python run.py roche.com")
         sys.exit(1)
@@ -41,6 +44,13 @@ def main():
         print(f"Not a valid domain/URL: {e}")
         print("Try:  python run.py roche.com")
         sys.exit(1)
+
+    # Load persisted config/model-profile selection the same way the full CLI does, so a
+    # `reconrelate model use ...` selection isn't silently ignored by this quick launcher.
+    from reconrelate.config.config_file import apply_config_to_env
+    from reconrelate.config.model_profiles import apply_profiles_to_env
+    apply_config_to_env()
+    apply_profiles_to_env()
 
     # Fast scout by default: low budget = shallow, quick first look. Deeper crawls go
     # through the full CLI (see the module docstring / the hint printed at the end).

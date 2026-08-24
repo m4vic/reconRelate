@@ -2,6 +2,8 @@
 
 ReconRelate is a CLI-first reconnaissance relationship mapper.
 
+![ReconRelate interactive shell](docs/img/reconrelate-shell.svg)
+
 Current implementation status (early alpha):
 
 1. `run` executes a deterministic-first pivot workflow and can escalate ambiguous evidence to a configured local or cloud LLM.
@@ -9,9 +11,12 @@ Current implementation status (early alpha):
    provenance-aware observation and claim ledger is being integrated underneath it.
 3. `tree`, `report`, and `export` commands render findings.
 4. Free providers work without API keys; optional BYOK providers are listed by `reconrelate providers`.
+5. Bare `reconrelate` (or `python run.py` with no domain) opens an interactive shell with slash
+   commands (`/run`, `/model`, `/providers`, ...) — every one-shot subcommand still works
+   unchanged for scripts and CI.
 
 The CLI is the primary product interface. ReconRelate is being developed as an open-source,
-free-first local tool; see `PRODUCTION_IMPLEMENTATION_PLAN.md` for the production roadmap.
+free-first local tool.
 
 ## What it finds
 

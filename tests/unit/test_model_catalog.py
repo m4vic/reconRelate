@@ -17,6 +17,11 @@ def test_catalog_does_not_recommend_unevaluated_models() -> None:
     assert all(item["quality_status"] == "unevaluated" for item in payload["models"])
 
 
+def test_catalog_has_no_duplicate_model_entries() -> None:
+    models = [item["model"] for item in model_catalog.catalog_payload()["models"]]
+    assert len(models) == len(set(models)), f"duplicate catalog entries: {models}"
+
+
 def test_local_doctor_reports_installed_model_ready(monkeypatch) -> None:
     settings = _local_settings(monkeypatch)
     monkeypatch.setattr(

@@ -35,6 +35,7 @@ _COMMAND_ALIASES = {
     "/export": ["export"],
     "/providers": ["providers"],
     "/models": ["models"],
+    "/model": ["model"],
     "/config": ["config"],
     "/clusters": ["clusters"],
     "/domains": ["domains"],
@@ -90,7 +91,7 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
         return ["run", "--mode", "quick", "--budget", "low", *normalized[1:]]
     if normalized[0] == "deep":
         return ["run", "--mode", "deep", *normalized[1:]]
-    if normalized[0] not in {"run", "plan", "tree", "report", "export", "providers", "models", "clusters", "acquisitions", "history", "domains", "config", "eval", "db", "--help", "-h", "--version"} and not normalized[0].startswith("-"):
+    if normalized[0] not in {"run", "plan", "tree", "report", "export", "providers", "models", "model", "clusters", "acquisitions", "history", "domains", "config", "eval", "db", "--help", "-h", "--version"} and not normalized[0].startswith("-"):
         return ["run", *normalized]
     return normalized
 
@@ -319,6 +320,47 @@ Use only against domains you are authorized to assess.""",
     models_parser.add_argument("--max-model-output-tokens", type=int, default=None)
     models_parser.add_argument("--max-cloud-tokens", type=int, default=None)
     models_parser.add_argument("--max-cloud-cost-usd", type=float, default=None)
+
+    model_parser = subparsers.add_parser(
+        "model", help="Add, select, list, or remove named model profiles (local + cloud)"
+    )
+    model_sub = model_parser.add_subparsers(dest="model_command")
+    add_p = model_sub.add_parser("add", help="Add or update a named model profile")
+    add_p.add_argument("name", help="Profile name, e.g. local-fast, openai-mini")
+    add_p.add_argument("model_id", help="Model id, e.g. qwen2.5:7b-instruct, gpt-5.6-luna, claude-...")
+    add_p.add_argument(
+        "--provider", choices=("ollama", "openai", "anthropic", "custom"), default=None,
+        help="Defaults to a guess from the model id (ollama unless it looks like a cloud model)",
+    )
+    add_p.add_argument("--api-base", default="", help="Ollama daemon URL, or a custom endpoint URL")
+    add_p.add_argument(
+        "--key", default="", dest="key_env",
+        help="Env var name holding the API key (default: OPENAI_API_KEY / ANTHROPIC_API_KEY)",
+    )
+    add_p.add_argument(
+        "--key-value", default=None,
+        help="Store this value under --key (or the provider default name) in the same step",
+    )
+    add_p.add_argument(
+        "--input-price", type=float, default=None,
+        help="USD per million input tokens (required for a cloud model with no built-in price)",
+    )
+    add_p.add_argument("--output-price", type=float, default=None, help="USD per million output tokens")
+
+    use_p = model_sub.add_parser("use", help="Assign a profile to a role")
+    use_p.add_argument("name", help="Profile name")
+    use_p.add_argument(
+        "--role", choices=("primary", "fast"), default="primary",
+        help="primary: used standalone or on escalation. fast: tried first, cheaper.",
+    )
+
+    list_p = model_sub.add_parser("list", help="List configured profiles")
+    list_p.add_argument("--json", action="store_true", dest="as_json")
+    show_p = model_sub.add_parser("show", help="Show one profile")
+    show_p.add_argument("name")
+    show_p.add_argument("--json", action="store_true", dest="as_json")
+    remove_p = model_sub.add_parser("remove", help="Remove a profile")
+    remove_p.add_argument("name")
 
     clusters_parser = subparsers.add_parser(
         "clusters", help="Show same-operator clusters (domains sharing an identifier) for a run"
@@ -817,8 +859,82 @@ def _handle_config(args: argparse.Namespace, settings: Settings) -> int:
         print(f"Unset {env_name}")
         return 0
     # default (including bare `config`): show
+    from reconrelate.config import model_profiles as mp
     print(cf.render_show(settings))
+    print()
+    print(mp.render_list(mp.load_store()))
     return 0
+
+
+def _handle_model(args: argparse.Namespace, settings: Settings) -> int:
+    from reconrelate.config import config_file as cf
+    from reconrelate.config import model_profiles as mp
+
+    cmd = getattr(args, "model_command", None)
+    try:
+        if cmd == "add":
+            store = mp.load_store()
+            provider = args.provider or mp.infer_provider(args.model_id)
+            key_env = args.key_env
+            if args.key_value is not None:
+                key_env = (key_env or mp.default_key_env(provider)).strip().upper()
+                if not key_env:
+                    raise mp.ModelProfileError(
+                        "--key-value requires --key (no default key env name for this provider)"
+                    )
+                cf.set_value(f"key.{key_env}", args.key_value)
+            profile = mp.add_profile(
+                store, name=args.name, provider=provider, model_id=args.model_id,
+                api_base=args.api_base, key_env=key_env,
+                input_price=args.input_price, output_price=args.output_price,
+            )
+            mp.save_store(store)
+            print(f"Added profile {profile.name!r}: {profile.provider}/{profile.model_id}")
+            print(f"Assign it with: reconrelate model use {profile.name} --role primary|fast")
+            return 0
+        if cmd == "use":
+            store = mp.load_store()
+            mp.use_profile(store, args.name, args.role)
+            mp.save_store(store)
+            profile = mp.active_profile(store, args.role)
+            print(f"{args.name!r} is now the {args.role} model.")
+            if profile is not None and profile.is_cloud():
+                print(
+                    "This is a cloud model: a run still needs --approve-cloud, allow_cloud=true, "
+                    "and positive --max-cloud-tokens / --max-cloud-cost-usd ceilings. Assigning a "
+                    "profile to a role does not grant permission to spend on it."
+                )
+            return 0
+        if cmd == "remove":
+            store = mp.load_store()
+            mp.remove_profile(store, args.name)
+            mp.save_store(store)
+            print(f"Removed profile {args.name!r}.")
+            return 0
+        if cmd == "show":
+            store = mp.load_store()
+            profile = store.profiles.get(args.name)
+            if profile is None:
+                raise mp.ModelProfileError(f"no such profile: {args.name!r}")
+            if getattr(args, "as_json", False):
+                print(json.dumps(profile.to_dict(), indent=2, sort_keys=True))
+            else:
+                print(mp.render_list(mp.ProfileStore(profiles={args.name: profile}, roles=store.roles)))
+            return 0
+        # default (including bare `model` and `model list`): list
+        store = mp.load_store()
+        if getattr(args, "as_json", False):
+            payload = {
+                "profiles": {name: p.to_dict() for name, p in store.profiles.items()},
+                "roles": store.roles,
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(mp.render_list(store))
+        return 0
+    except mp.ModelProfileError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
 
 def _handle_models(args: argparse.Namespace, settings: Settings) -> int:
@@ -1113,7 +1229,11 @@ def _handle_db(args: argparse.Namespace, settings: Settings) -> int:
 def main(argv: list[str] | None = None) -> int:
     # Load persisted config into the environment before building Settings (env still wins).
     from reconrelate.config.config_file import apply_config_to_env
+    from reconrelate.config.model_profiles import apply_profiles_to_env
     apply_config_to_env()
+    # Expand any active model-profile role assignment (reconrelate model use ...) into the
+    # same LLM_MODEL / FAST_LLM_MODEL / OLLAMA_API_BASE env vars Settings.from_env() reads.
+    apply_profiles_to_env()
     parser = _build_parser()
     args = parser.parse_args(_normalize_cli_argv(list(sys.argv[1:] if argv is None else argv)))
     configure_logging(verbose=getattr(args, "verbose", False))
@@ -1121,6 +1241,11 @@ def main(argv: list[str] | None = None) -> int:
     budget_cli = getattr(args, "budget", None) if args.command in {"run", "plan"} else None
     settings = Settings.from_env(run_mode_cli=run_mode_cli, budget_cli=budget_cli)
     if not args.command:
+        # A real terminal with nothing piped in -> the interactive shell. A script or a pipe
+        # (sys.stdin.isatty() is False) keeps the old scriptable behavior unchanged.
+        if sys.stdin.isatty():
+            from reconrelate.cli.shell import run_shell
+            return run_shell()
         parser.print_help()
         return 1
 
@@ -1139,6 +1264,8 @@ def main(argv: list[str] | None = None) -> int:
             return _handle_providers(args, settings)
         if args.command == "models":
             return _handle_models(args, settings)
+        if args.command == "model":
+            return _handle_model(args, settings)
         if args.command == "clusters":
             return _handle_clusters(args, settings)
         if args.command == "acquisitions":

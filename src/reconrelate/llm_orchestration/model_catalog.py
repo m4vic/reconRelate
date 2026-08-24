@@ -48,14 +48,6 @@ MODEL_CATALOG = (
         evidence="Real local strict-schema call on 2026-08-14; no held-out quality corpus.",
     ),
     ModelCatalogEntry(
-        model="ollama/qwen2.5:7b-instruct",
-        runtime="local",
-        task="relationship_pivot",
-        compatibility="unverified",
-        quality_status="unevaluated",
-        evidence="Default candidate; transport and held-out quality are not yet verified.",
-    ),
-    ModelCatalogEntry(
         model="gpt-5-mini",
         runtime="cloud",
         task="relationship_pivot",

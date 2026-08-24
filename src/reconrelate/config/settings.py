@@ -110,6 +110,9 @@ class Settings:
     map_subdomains: bool = False
     # Maximum time a call waits in the shared FIFO provider admission queue.
     provider_capacity_wait_sec: float = 5.0
+    # Custom OpenAI-compatible endpoint base URL for a `provider=custom` model profile
+    # (self-hosted or third-party inference server). Unused for ollama/openai/anthropic models.
+    llm_custom_api_base: str = ""
 
     @classmethod
     def from_env(cls, run_mode_cli: str | None = None, budget_cli: str | None = None) -> "Settings":
@@ -189,4 +192,5 @@ class Settings:
             provider_capacity_wait_sec=max(
                 0.0, _env_float("RECONRELATE_PROVIDER_CAPACITY_WAIT_SEC", 5.0)
             ),
+            llm_custom_api_base=os.getenv("RECONRELATE_LLM_CUSTOM_API_BASE", "").strip(),
         )

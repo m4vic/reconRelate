@@ -126,6 +126,7 @@ class LLMClient:
         model: str = "qwen2.5:7b-instruct",
         fast_model: str = "",
         api_base: str | None = None,
+        custom_api_base: str = "",
         timeout_sec: int = 120,
         budget: ModelBudget | None = None,
         telemetry_sink: Callable[[ModelCallTelemetry], None] | None = None,
@@ -137,6 +138,9 @@ class LLMClient:
         self.model = model
         self.fast_model = fast_model or ""
         self.api_base = (api_base or "http://localhost:11434").rstrip("/")
+        # Only for a `provider=custom` model profile's litellm_id (e.g. "openai/<model>" routed
+        # at a self-hosted or third-party endpoint) — never applied to ollama/openai/anthropic.
+        self.custom_api_base = custom_api_base.rstrip("/") if custom_api_base else ""
         self.timeout_sec = timeout_sec
         self.budget = budget or ModelBudget(50, 200_000, 25_600, 0)
         self.telemetry_sink = telemetry_sink
@@ -201,6 +205,8 @@ class LLMClient:
         if litellm_model.startswith("ollama/"):
             kwargs["api_base"] = self.api_base
             kwargs["num_predict"] = 512
+        elif self.custom_api_base:
+            kwargs["api_base"] = self.custom_api_base
 
         started_at = _now_iso()
         started = time.perf_counter()

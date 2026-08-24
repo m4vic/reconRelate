@@ -104,6 +104,7 @@ def build_runtime(
             model=model,
             fast_model=resolved_fast,
             api_base=settings.ollama_api_base,
+            custom_api_base=settings.llm_custom_api_base,
             timeout_sec=settings.llm_timeout_sec,
             budget=ModelBudget(
                 max_calls=settings.max_model_calls,
