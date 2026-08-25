@@ -203,6 +203,9 @@ class RunOrchestrator:
         # in _resolve_org_domain_via_wikidata, cached per run since the same org name can recur
         # across providers and domains.
         self._wikidata_domain_cache: dict[str, str] = {}
+        # Set when an acquisitions provider fails mid-expansion for the current domain, so its
+        # incomplete result is not written to the cross-run cache. Reset per domain in run().
+        self._expansion_degraded = False
         self.execution_budget = ExecutionBudget(
             max_calls=self.settings.max_provider_calls,
             max_billable_units=self.settings.max_billable_units,
@@ -462,7 +465,10 @@ class RunOrchestrator:
             except Exception as e:
                 # Non-fatal enrichment failure (e.g. a provider circuit opening under rate limit);
                 # the run continues and reports completed_degraded. Info, not a terminal warning.
+                # Flagged so the caller does not persist this domain's (possibly empty) result to
+                # the cross-run cache — see the cache write in run().
                 logger.info("acquisitions expansion failed for %s: %s", p.value, e)
+                self._expansion_degraded = True
                 continue
 
             # Resolve GLEIF/SEC's domain-less relations before opening the batch below: batch()
@@ -1382,6 +1388,9 @@ class RunOrchestrator:
                 continue
 
             step_counter += 1
+            # Reset per domain: a provider failure while expanding one domain must not stop the
+            # next, healthy domain from being cached.
+            self._expansion_degraded = False
             cur_found = self.repository.count_domain_nodes(run_id)
             self._print_status(step_counter, work_item.depth, llm_calls, cur_found, work_item.domain)
 
@@ -1608,8 +1617,12 @@ class RunOrchestrator:
                 collected=cache_collected,
             )
 
-            # Store mapping in cross-run cache
-            if self.cross_run_cache_allowed:
+            # Store mapping in cross-run cache. Never cache a result produced while an
+            # enrichment provider was failing: an empty children list written after e.g. a
+            # Wikidata rate-limit is indistinguishable from a genuine "nothing found" on later
+            # runs, and because the entry is *fresh* the TTL never rescues it — every
+            # subsequent run replays the empty result and does no work at all.
+            if self.cross_run_cache_allowed and not self._expansion_degraded:
                 self.repository.upsert_domain_cache(
                     work_item.domain,
                     cache_collected,

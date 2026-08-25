@@ -318,3 +318,31 @@ def test_wikidata_fallback_unavailable_when_no_wikidata_provider_configured() ->
 
     assert collected == []
     assert orch.repository.edges == []
+
+
+def test_failed_expansion_is_not_written_to_the_cross_run_cache() -> None:
+    # A Wikidata rate-limit mid-expansion previously cached an empty children list. Because
+    # that entry is *fresh*, the TTL never rescues it: every later run replays the empty
+    # result and does zero provider/model work, which looks exactly like a broken tool.
+    orch = _orch(FakeAcq(raising=True), expand=True)
+    assert orch._expansion_degraded is False
+    asyncio.run(_expand(orch))
+    assert orch._expansion_degraded is True
+
+
+def test_successful_expansion_leaves_caching_enabled() -> None:
+    orch = _orch(FakeAcq(), expand=True)
+    asyncio.run(_expand(orch))
+    assert orch._expansion_degraded is False
+
+
+def test_one_provider_failure_flags_degraded_even_if_another_succeeds() -> None:
+    # The cache write covers the whole domain, so a partial result must not be persisted just
+    # because a second source happened to work.
+    failed = FakeAcq(raising=True)
+    working = FakeAcq()
+    setattr(failed, "__reconrelate_provider__", "gleif")
+    setattr(working, "__reconrelate_provider__", "wikidata")
+    orch = _orch([failed, working], expand=True)
+    asyncio.run(_expand(orch))
+    assert orch._expansion_degraded is True
