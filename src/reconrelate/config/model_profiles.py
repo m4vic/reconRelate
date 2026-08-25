@@ -33,9 +33,13 @@ from reconrelate.llm_orchestration.relationship_engine import _litellm_model_id
 
 PROFILES_ENV = "RECONRELATE_MODEL_PROFILES"
 _SCHEMA_VERSION = 1
-VALID_PROVIDERS = ("ollama", "openai", "anthropic", "custom")
+VALID_PROVIDERS = ("ollama", "openai", "anthropic", "gemini", "custom")
 VALID_ROLES = ("primary", "fast")
-_DEFAULT_KEY_ENV = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+_DEFAULT_KEY_ENV = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
 
 
 class ModelProfileError(ValueError):
@@ -44,6 +48,9 @@ class ModelProfileError(ValueError):
 
 def infer_provider(model_id: str) -> str:
     """Best-effort provider guess from a bare model id, for `model add` without --provider."""
+    lowered = model_id.strip().lower()
+    if lowered.startswith("gemini") or lowered.startswith("gemini/"):
+        return "gemini"
     resolved = _litellm_model_id(model_id)
     if resolved.startswith("ollama/"):
         return "ollama"
@@ -79,6 +86,11 @@ class ModelProfile:
         """
         if self.provider == "ollama":
             return f"ollama/{self.model_id.removeprefix('ollama/')}"
+        if self.provider == "gemini":
+            # _litellm_model_id has no rule for bare Gemini names ("gemini-3.6-flash" matches
+            # neither the gpt-*/claude* prefixes nor a provider/ form), so without this it would
+            # fall through to the ollama/ default and try to reach a local daemon.
+            return self.model_id if "/" in self.model_id else f"gemini/{self.model_id}"
         if self.provider == "custom":
             # A bare custom model id has no provider prefix _litellm_model_id recognizes, so it
             # would otherwise fall through to "unrecognized string -> ollama/" and silently talk

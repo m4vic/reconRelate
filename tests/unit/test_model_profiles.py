@@ -255,3 +255,49 @@ def test_model_use_selection_flows_into_settings_via_apply_profiles_to_env(cfg_p
     settings = Settings.from_env()
     assert settings.llm_model == "ollama/qwen2.5:7b-instruct"
     assert settings.ollama_api_base == "http://custom:9999"
+
+
+# ---- gemini provider (regression: bare gemini names fell through to ollama/) -------------
+
+def test_gemini_profile_gets_gemini_prefix_and_is_idempotent() -> None:
+    from reconrelate.llm_orchestration.relationship_engine import _litellm_model_id
+
+    p = mp.ModelProfile(name="g", provider="gemini", model_id="gemini-3.6-flash")
+    resolved = p.litellm_id()
+    assert resolved == "gemini/gemini-3.6-flash"
+    # Without the gemini branch this resolved to "ollama/gemini-3.6-flash" and silently tried
+    # to reach a local daemon. Re-derivation downstream must be stable.
+    assert _litellm_model_id(resolved) == resolved
+    assert p.is_cloud() is True
+
+
+def test_gemini_provider_is_inferred_from_a_bare_model_name() -> None:
+    assert mp.infer_provider("gemini-3.6-flash") == "gemini"
+    assert mp.infer_provider("gemini/gemini-3.6-flash") == "gemini"
+
+
+def test_gemini_default_key_env() -> None:
+    assert mp.default_key_env("gemini") == "GEMINI_API_KEY"
+    store = mp.ProfileStore()
+    p = mp.add_profile(
+        store, name="g", provider="gemini", model_id="gemini-3.6-flash",
+        input_price=0.3, output_price=2.5,
+    )
+    assert p.key_env == "GEMINI_API_KEY"
+
+
+def test_gemini_prequalified_id_left_verbatim() -> None:
+    p = mp.ModelProfile(name="g", provider="gemini", model_id="gemini/gemini-3.6-flash")
+    assert p.litellm_id() == "gemini/gemini-3.6-flash"
+
+
+def test_openrouter_model_id_is_preserved_and_idempotent() -> None:
+    # OpenRouter ids carry two slashes and a ":free" suffix; they must pass through untouched
+    # so a free-tier model is usable without a paid key.
+    from reconrelate.llm_orchestration.relationship_engine import _litellm_model_id, is_cloud_model
+
+    mid = "openrouter/meta-llama/llama-3.3-70b-instruct:free"
+    p = mp.ModelProfile(name="or", provider="custom", model_id=mid)
+    assert p.litellm_id() == mid
+    assert _litellm_model_id(mid) == mid
+    assert is_cloud_model(mid) is True
