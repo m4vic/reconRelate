@@ -90,7 +90,19 @@ GENERIC_EMAIL_PATTERNS = {
     "registrar-abuse@", "whoisguard", "privacyprotect", "whoisrequest", "whois@",
     "domainsprivacy", "contactprivacy", "whoisprivacy", "domainabuse", "noreply", "no-reply",
     "registryadmin", "dns-admin", "ssl@",
+    # Domain-operations role addresses. These sit on the company's OWN domain, so the
+    # registrar-domain filter below does not catch them, but they identify a shared
+    # registrar/DNS-operations mailbox rather than the owning entity - reverse-searching one
+    # returns whatever unrelated pages happen to quote the string. Measured:
+    # registrar-updates@salesforce.com pulled gov.in into a salesforce.com scan.
+    "registrar-updates@", "registrar@", "domainadmin@", "domain-admin@", "domains@",
+    "dnsadmin@", "domainmaster@", "domainmanager@", "tech-admin@",
 }
+
+# Local-part prefixes that mark an operational role mailbox rather than an owner contact.
+# Generalizes the list above: matching the local part before "@" catches variants
+# ("registrar-updates", "registrar-notices", "domain-ops") without enumerating each one.
+_ROLE_LOCALPART_PREFIXES = ("registrar", "domainadmin", "domain-admin", "dnsadmin", "domainmaster")
 
 # Domain registrars / brand-protection & privacy services. A WHOIS contact email or
 # nameserver on one of these domains belongs to the REGISTRAR, not the domain owner —
@@ -146,9 +158,20 @@ def _domain_in(host: str, blocklist: set[str]) -> bool:
     return any(host == b or host.endswith("." + b) for b in blocklist)
 
 
+def is_role_mailbox(email: str) -> bool:
+    """True if the local part names a domain-operations role rather than an owner contact.
+
+    Catches the whole family (registrar-updates@, registrar-notices@, domainadmin@, ...) on a
+    company's *own* domain, where is_registrar_email cannot help because the email domain is
+    the target's own.
+    """
+    local = email.lower().partition("@")[0].strip()
+    return local.startswith(_ROLE_LOCALPART_PREFIXES)
+
+
 def is_registrar_email(email: str) -> bool:
-    """True if the email belongs to a known registrar / privacy service (not the owner)."""
-    return _domain_in(_email_domain(email), REGISTRAR_DOMAINS)
+    """True if the email belongs to a registrar/privacy service, or is a role mailbox."""
+    return _domain_in(_email_domain(email), REGISTRAR_DOMAINS) or is_role_mailbox(email)
 
 
 def is_noise_domain(domain: str) -> bool:
@@ -203,9 +226,13 @@ def validate_pivot(candidate: PivotCandidate) -> bool:
         if any(generic in val for generic in GENERIC_NS_DOMAINS):
             return False
 
-    # Block generic/privacy emails
+    # Block generic/privacy emails, registrar-owned addresses, and operations role mailboxes
+    # (even when the model proposes one - it has no reliable way to tell an owner contact from
+    # a shared registrar mailbox on the company's own domain).
     if candidate.id_type == "email":
         if any(pattern in val for pattern in GENERIC_EMAIL_PATTERNS):
+            return False
+        if is_registrar_email(val):
             return False
 
     return True

@@ -119,7 +119,13 @@ class BasicInfoProvider:
                 content_type = resp.headers.get("Content-Type", "")
                 if "text/html" not in content_type and content_type:
                     return "", str(getattr(resp, "url", url))
-                content = await read_limited_bytes(resp, max_bytes=524_288)
+                # Truncate rather than reject: the extracted signals (<title>, meta description,
+                # tracker ids, copyright entity) live in <head> or early markup, and this only
+                # ever used the first 100 KB anyway. Rejecting cost us the page entirely on large
+                # corporate sites - measured: atlassian.com 2.4 MB, stripe.com 685 KB,
+                # salesforce.com 565 KB, trello.com 529 KB all exceeded the old 512 KB ceiling,
+                # losing page signals on exactly the big-company targets this tool exists to map.
+                content = await read_limited_bytes(resp, max_bytes=524_288, truncate=True)
                 return content[:100_000].decode("utf-8", errors="replace"), str(getattr(resp, "url", url))
 
     async def _fetch_html(self, domain: str) -> tuple[str, str]:
