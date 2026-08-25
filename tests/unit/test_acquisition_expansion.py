@@ -41,6 +41,18 @@ class FakeSecRelation:
         }]
 
 
+class FakeWikidataResolver:
+    """A minimal wikidata-identity fake exposing only resolve_domain (the fallback path)."""
+
+    def __init__(self, mapping: dict[str, str]) -> None:
+        self.mapping = mapping
+        self.calls: list[str] = []
+
+    async def resolve_domain(self, name: str) -> str:
+        self.calls.append(name)
+        return self.mapping.get(name, "")
+
+
 class FakeRepository:
     def __init__(self) -> None:
         self.nodes: dict[tuple[str, str], str] = {}
@@ -228,3 +240,81 @@ def test_cached_acquisition_replays_as_direct_acquisition_edges() -> None:
     }
     assert all(edge["relation"] != "domain_has_identifier" for edge in replay.repository.edges)
     assert len(replay.repository.claims) == 2
+
+
+def test_sec_domain_gap_resolved_via_wikidata_fallback_when_available() -> None:
+    sec = FakeSecRelation()
+    setattr(sec, "__reconrelate_provider__", "sec-edgar")
+    wikidata = FakeWikidataResolver({"Target Labs LLC": "targetlabs.com"})
+    setattr(wikidata, "__reconrelate_provider__", "wikidata")
+
+    orch = _orch([sec, wikidata], expand=True)
+    queue, collected = asyncio.run(_expand(orch))
+
+    assert wikidata.calls == ["Target Labs LLC"]
+    assert {item["domain"] for item in collected} == {"targetlabs.com"}
+    assert len(queue) == 1
+
+    domain_edges = [e for e in orch.repository.edges if e["source"] == "sec-edgar"]
+    assert len(domain_edges) == 1
+    domain_obs = next(
+        o for o in orch.repository.observations
+        if o.source == "sec-edgar" and o.object_type == "domain"
+    )
+    assert domain_obs.object_value_norm == "targetlabs.com"
+    assert domain_obs.confidence == 0.75  # lower than a direct source claim (0.9)
+    assert domain_obs.normalized["domain_resolved_via"] == "wikidata_name_lookup"
+    # The org-level observation (SEC's own claim) is untouched and still present.
+    org_obs = next(
+        o for o in orch.repository.observations
+        if o.source == "sec-edgar" and o.object_type == "organization"
+    )
+    assert org_obs.object_value_norm == "Target Labs LLC"
+
+
+def test_wikidata_fallback_result_is_cached_per_org_name() -> None:
+    class TwoHitSec:
+        async def related_orgs(self, name, max_results=5):  # noqa: ANN001
+            return [
+                {"relation": "acquired", "org": "Same Org", "domain": ""},
+                {"relation": "acquired", "org": "Same Org", "domain": ""},
+            ]
+
+    sec = TwoHitSec()
+    setattr(sec, "__reconrelate_provider__", "sec-edgar")
+    wikidata = FakeWikidataResolver({"Same Org": "sameorg.com"})
+    setattr(wikidata, "__reconrelate_provider__", "wikidata")
+
+    orch = _orch([sec, wikidata], expand=True)
+    asyncio.run(_expand(orch))
+
+    assert wikidata.calls == ["Same Org"]  # one lookup, not two
+
+
+def test_wikidata_gap_is_not_retried_through_its_own_fallback() -> None:
+    # A domain-less relation FROM wikidata itself should not trigger a second, name-based
+    # Wikidata lookup on wikidata's own miss.
+    class GappyWikidata:
+        async def related_orgs(self, name, max_results=5):  # noqa: ANN001
+            return [{"relation": "subsidiary", "org": "No Website Corp", "domain": ""}]
+
+        async def resolve_domain(self, name):  # noqa: ANN001
+            raise AssertionError("should not be called for wikidata's own domain-less result")
+
+    wikidata = GappyWikidata()
+    setattr(wikidata, "__reconrelate_provider__", "wikidata")
+    orch = _orch(wikidata, expand=True)
+    queue, collected = asyncio.run(_expand(orch))
+
+    assert collected == []
+    assert len(queue) == 0
+
+
+def test_wikidata_fallback_unavailable_when_no_wikidata_provider_configured() -> None:
+    sec = FakeSecRelation()
+    setattr(sec, "__reconrelate_provider__", "sec-edgar")
+    orch = _orch(sec, expand=True)  # sec-edgar only, no wikidata in acquisitions_providers
+    queue, collected = asyncio.run(_expand(orch))
+
+    assert collected == []
+    assert orch.repository.edges == []

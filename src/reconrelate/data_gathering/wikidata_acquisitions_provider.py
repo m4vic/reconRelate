@@ -102,6 +102,19 @@ class WikidataAcquisitionsProvider:
                 continue
         return ""
 
+    async def resolve_domain(self, name: str) -> str:
+        """Best-effort org-name -> official-website domain (P856), or '' if not resolvable.
+
+        Public entry point to the same reliable name->QID->P856 path related_orgs uses
+        internally, for callers that already have an org name from elsewhere (GLEIF, SEC) and
+        just need a domain for it — not a fresh set of Wikidata-sourced relations.
+        """
+        qid = await self._search_qid(name.strip())
+        if not qid:
+            return ""
+        ent = await self._entity(qid)
+        return self._website_domain_from(ent)
+
     async def related_orgs(self, name: str, max_results: int = 20) -> list[dict]:
         """[{relation, org, qid, domain}] — orgs tied to `name` by ownership on Wikidata.
 

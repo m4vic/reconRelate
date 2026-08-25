@@ -198,6 +198,11 @@ class RunOrchestrator:
             for provider in policy_providers if provider is not None
         )
         self._acq_expanded: set[tuple[str, str]] = set()
+        # GLEIF and SEC report real org->org relations but never a domain (no equivalent of
+        # Wikidata's P856 official-website claim) — resolved via a Wikidata name lookup fallback
+        # in _resolve_org_domain_via_wikidata, cached per run since the same org name can recur
+        # across providers and domains.
+        self._wikidata_domain_cache: dict[str, str] = {}
         self.execution_budget = ExecutionBudget(
             max_calls=self.settings.max_provider_calls,
             max_billable_units=self.settings.max_billable_units,
@@ -374,6 +379,52 @@ class RunOrchestrator:
                 depth_cap, collected,
             )
 
+    async def _resolve_org_domain_via_wikidata(self, run_id: str, org: str) -> str:
+        """Fallback for a provider (GLEIF, SEC) that names a related org but has no domain field.
+
+        Wikidata is the only configured acquisitions source with a real org->domain link
+        (P856 official website); GLEIF's LEI hierarchy and SEC's 8-K text extraction both
+        report the *organization*, correctly, but have no equivalent of that claim, so their
+        domain field is always "". Rather than leave a well-sourced, filing-backed relation
+        (SEC) or LEI-verified relation (GLEIF) permanently unreachable in the graph, resolve the
+        org name through the same Wikidata path used for org pivots generally. Skipped when the
+        current provider already is wikidata: it already tried its own most direct route
+        (property traversal from the source entity) and a second name-based search on its own
+        miss is unlikely to add anything.
+        """
+        org = org.strip()
+        if not org:
+            return ""
+        if org in self._wikidata_domain_cache:
+            return self._wikidata_domain_cache[org]
+        wikidata = next(
+            (p for p in self.acquisitions_providers if provider_identity(p, "") == "wikidata"), None
+        )
+        if wikidata is None:
+            return ""
+        try:
+            domain = await self.provider_executor.execute(
+                run_id=run_id,
+                provider="wikidata",
+                capability="acquisitions",
+                operation="resolve_domain",
+                call=lambda: wikidata.resolve_domain(org),
+                validator=lambda value: isinstance(value, str),
+                billable=provider_is_billable(wikidata),
+                concurrency_limit=provider_concurrency_limit(wikidata),
+                rate_limit_per_minute=provider_rate_limit(wikidata),
+                max_response_bytes=provider_response_limit(wikidata),
+                max_result_items=provider_result_limit(wikidata),
+                max_requests_per_attempt=provider_request_limit(wikidata),
+                max_pages_per_attempt=provider_page_limit(wikidata),
+                timeout_sec=provider_timeout(wikidata, self.settings.request_timeout_sec),
+            )
+        except Exception as exc:
+            logger.info("Wikidata domain fallback failed for org %r: %s", org, exc)
+            domain = ""
+        self._wikidata_domain_cache[org] = domain
+        return domain
+
     async def _expand_acquisitions_for_provider(
         self, provider, pivots, run_id, domain_node_id, work_item, queue, enqueued, depth_cap,
         collected,
@@ -413,10 +464,24 @@ class RunOrchestrator:
                 # the run continues and reports completed_degraded. Info, not a terminal warning.
                 logger.info("acquisitions expansion failed for %s: %s", p.value, e)
                 continue
+
+            # Resolve GLEIF/SEC's domain-less relations before opening the batch below: batch()
+            # holds a single deferred-commit SQLite transaction open on the shared connection
+            # until it exits, so an await (a real network call, here) inside that block would
+            # hold the transaction open across it — resolve everything network-bound first, then
+            # write everything synchronously.
+            fallback_domains: dict[str, str] = {}
+            if source != "wikidata":
+                for rel in related:
+                    org = str(rel.get("org", "")).strip()
+                    if not str(rel.get("domain", "")).strip() and org and org not in fallback_domains:
+                        fallback_domains[org] = await self._resolve_org_domain_via_wikidata(run_id, org)
+
             with self.repository.batch():
                 for rel in related:
                     relation = str(rel.get("relation", "related"))
                     domain = str(rel.get("domain", "")).strip()
+                    domain_resolved_via_wikidata = False
                     if not domain and str(rel.get("org", "")).strip():
                         org = str(rel.get("org", "")).strip()
                         self.repository.add_observation(run_id, Observation.build(
@@ -441,8 +506,15 @@ class RunOrchestrator:
                             },
                             **observation_policy_fields(provider),
                         ))
+
+                        # Already resolved above, outside the batch's open transaction. GLEIF and
+                        # SEC name the related org correctly but have no domain field at all —
+                        # without this, a well-sourced, LEI-verified or filing-backed relation
+                        # would permanently dead-end here and never reach the graph.
+                        domain = fallback_domains.get(org, "")
+                        domain_resolved_via_wikidata = bool(domain)
                     if not domain:
-                        continue  # no official website on Wikidata → skip (don't guess via search)
+                        continue  # no official website on Wikidata (direct or fallback) → skip
                     try:
                         domain = registrable_domain(normalize_domain(domain))
                         validate_scan_target(domain)
@@ -462,11 +534,16 @@ class RunOrchestrator:
                         source=source,
                         source_record_id=(str(rel.get("source_record_id", "")) or
                                           str(rel.get("qid", "")) or None),
-                        confidence=0.9,
+                        # Slightly lower than a source's own direct domain claim (0.9): resolved
+                        # by a secondary name lookup against Wikidata, not reported by source
+                        # itself. Still an exact P856 official-website match, not a text guess.
+                        confidence=0.75 if domain_resolved_via_wikidata else 0.9,
                         normalized={
                             "related_organization": str(rel.get("org", "")),
                             "relation": relation,
                             "official_domain": domain,
+                            **({"domain_resolved_via": "wikidata_name_lookup"}
+                               if domain_resolved_via_wikidata else {}),
                         },
                         **observation_policy_fields(provider),
                     )
@@ -815,7 +892,17 @@ class RunOrchestrator:
                 # Free text-search on an org/name string returns whatever pages mention it
                 # (proven noise: "day one" → englishclub.com). Skip — org→domain is resolved
                 # reliably via Wikidata P856 in _expand_acquisitions instead.
-                if pivot.id_type in ("org", "name"):
+                #
+                # ns pivots have the same failure mode, proven twice: a hostname like
+                # "ns1.automattic.com" scores as a vanity nameserver (it contains the company's
+                # own domain), but is commonly a CNAME to a shared third-party DNS provider, not
+                # infrastructure the company operates. Reverse-searching that hostname as free
+                # text returned ibm.com, cdc.gov, apollohospitals.com, waves.com (Automattic) and
+                # microsoft.com, cbp.gov (Mozilla) — all unrelated. Whoxy's structured reverse
+                # WHOIS doesn't even support an ns field (_FIELD_FOR has no "ns" key), so this
+                # path was already a DuckDuckGo-only, free-text-only search for every ns pivot;
+                # removing it costs no real capability, only the noise.
+                if pivot.id_type in ("org", "name", "ns"):
                     return pivot, identifier_node_id, []
                 if self.reverse_whois_provider is None:
                     return pivot, identifier_node_id, []

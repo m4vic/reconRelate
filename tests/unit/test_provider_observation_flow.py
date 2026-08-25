@@ -62,6 +62,17 @@ class _TrackerReverse:
         return ["candidate.example"]
 
 
+class _RecordingReverse:
+    """Records every identifier it's asked to search, for asserting it's never called."""
+
+    def __init__(self) -> None:
+        self.searched: list[str] = []
+
+    async def search(self, identifier, max_results):  # noqa: ANN001
+        self.searched.append(identifier.id_type)
+        return ["unrelated-noise.example"]
+
+
 class _TrackerVerifier:
     def __init__(self, matched: bool) -> None:
         self.matched = matched
@@ -220,6 +231,37 @@ def test_restricted_provider_disables_cross_run_cache_for_the_run() -> None:
     summary = asyncio.run(orchestrator.run("origin.example", max_depth=0))
     assert summary.status == "completed"
     assert repo.get_domain_cache("origin.example") is None
+
+
+def test_ns_pivots_do_not_reach_free_text_reverse_whois() -> None:
+    # Same failure mode already fixed once for org/name pivots ("day one" -> englishclub.com):
+    # a hostname like ns1.automattic.com scores as a company-operated vanity nameserver, but is
+    # commonly a CNAME to a shared third-party DNS provider. Reverse-searching it as free text
+    # returned unrelated domains (ibm.com, cdc.gov, ...) in real runs. ns pivots must not reach
+    # the search() call at all, matching org/name's existing exclusion.
+    conn = get_connection(":memory:")
+    init_db(conn)
+    repo = GraphRepository(conn)
+    settings = Settings.from_env()
+    reverse = _RecordingReverse()
+    setattr(reverse, "__reconrelate_provider__", "duckduckgo")
+    orchestrator = RunOrchestrator(
+        repository=repo, whois_provider=None, basic_info_provider=None,
+        reverse_whois_provider=reverse, crtsh_provider=None, hackertarget_provider=None,
+        dns_provider=None, relationship_engine=None, settings=settings,
+    )
+    run_id = repo.create_run("automattic.example", 1, 5)
+    root_id = repo.get_or_create_node(run_id, "domain", "automattic.example", {})
+    queue = DomainQueue(repository=repo, run_id=run_id)
+    collected: list[dict] = []
+    asyncio.run(orchestrator._reverse_whois_batch(
+        [
+            PivotCandidate("ns", "ns1.automattic.example", 0.85, "vanity nameserver"),
+            PivotCandidate("email", "admin@automattic.example", 0.8, "whois email"),
+        ],
+        run_id, root_id, DomainWorkItem("automattic.example", 0, None), queue, set(), 1, collected,
+    ))
+    assert reverse.searched == ["email"]  # ns never reached search() at all; email still does
 
 
 def test_tracker_reverse_candidate_requires_and_retains_exact_page_verification() -> None:
