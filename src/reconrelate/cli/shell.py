@@ -10,6 +10,7 @@ keep in sync. A bare domain (no leading `/`) is shorthand for a safe quick scout
 
 from __future__ import annotations
 
+import argparse
 import shlex
 
 try:
@@ -26,21 +27,55 @@ BANNER = r"""
 |_| \_\___|\___\___/|_| |_| |_| \_\___|_|\__,_|\__\___|
 """
 
-_HELP = """\
-Type a domain to scan it (quick scout, depth 1), or use a slash command:
+# Extra usage hints per command, merged into the generated help below. Only the argument
+# shape lives here — the command list itself and every description are read from the real
+# argparse parser, so a new subcommand can never be missing from `/help` again.
+_ARG_HINTS = {
+    "run": "<domain> [flags...]",
+    "plan": "<domain> [flags...]",
+    "tree": "<run_id>",
+    "report": "<run_id>",
+    "export": "<run_id> --out <dir>",
+    "clusters": "<run_id>",
+    "domains": "<run_id>",
+    "acquisitions": "<org name>",
+    "history": "<domain>",
+    "eval": "<graph.json> --case <case.json>",
+    "model": "list|add|use|show|remove",
+    "models": "list|doctor|benchmark",
+    "providers": "[doctor]",
+    "config": "show|set|unset",
+    "db": "check|backup|restore|retention",
+}
 
-  /run <domain> [flags...]     full run command, e.g. /run acme.com --mode deep --acquisitions
-  /model  list|add|use|show|remove ...   named model profiles (local Ollama + cloud)
-  /models list|doctor|benchmark          the built-in model catalog
-  /providers [doctor]                    which data sources (APIs) are active right now
-  /config  show|set|unset ...
-  /plan <domain> [flags...]    dry-run: what WOULD run, no network calls
-  /tree <run_id>
-  /report <run_id>
-  /export <run_id> --out <dir>
-  /help                        this message
-  /exit, /quit                 leave
-"""
+
+def _build_help() -> str:
+    """Generate the slash-command list from the real parser, so the two cannot drift apart."""
+    from reconrelate.cli.app import _build_parser
+
+    lines = [
+        "Type a domain to scan it (quick scout, depth 1), or use a slash command:",
+        "",
+    ]
+    parser = _build_parser()
+    subparsers = next(
+        (a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None
+    )
+    if subparsers is not None:
+        seen: set[str] = set()
+        for choice in subparsers._choices_actions:
+            name = choice.dest
+            if name in seen:
+                continue
+            seen.add(name)
+            invocation = f"/{name} {_ARG_HINTS.get(name, '')}".rstrip()
+            lines.append(f"  {invocation:<38} {choice.help or ''}".rstrip())
+    lines += [
+        "",
+        f"  {'/help':<38} this message",
+        f"  {'/exit, /quit':<38} leave",
+    ]
+    return "\n".join(lines)
 
 
 def _print(text: str, *, style: str | None = None) -> None:
@@ -102,7 +137,7 @@ def _loop(cli_main) -> int:
         if line in ("/exit", "/quit", "exit", "quit"):
             return 0
         if line in ("/help", "help", "?"):
-            _print(_HELP)
+            _print(_build_help())
             continue
 
         try:
