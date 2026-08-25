@@ -534,7 +534,7 @@ def _handle_run(args: argparse.Namespace, settings: Settings) -> int:
         if not args.no_save and settings.auto_save_artifacts:
             out_dir = Path(args.artifacts_dir or settings.artifacts_dir)
             graph = runtime.repository.get_run_graph(summary.run_id)
-            resolved = write_run_bundle(graph, summary.run_id, out_dir)
+            resolved = write_run_bundle(graph, summary.run_id, out_dir, summary.root_domain)
             if not args.as_json:
                 print(f"Artifacts: {resolved}")
         return 0
@@ -571,10 +571,18 @@ def _handle_export(args: argparse.Namespace, settings: Settings) -> int:
         graph = runtime.repository.get_run_graph(args.run_id)
         out_dir = Path(args.out)
         out_dir.mkdir(parents=True, exist_ok=True)
+        # `export` stays split into separate machine-readable files: `eval` and `comparison`
+        # consume the .graph.json directly, so that stays a stable, separately-addressable
+        # artifact. Only the stem changes, from an opaque run id to <domain>-<n>, matching the
+        # auto-saved bundle. The combined single-file view is what `run` writes.
+        from reconrelate.output.artifacts import next_run_index, safe_domain_stem
+        run_row = graph.get("run") or {}
+        domain = str(run_row["root_domain"] if "root_domain" in run_row else "")
+        stem = f"{safe_domain_stem(domain)}-{next_run_index(domain, out_dir)}"
         paths = (
-            out_dir / f"{args.run_id}.tree.txt",
-            out_dir / f"{args.run_id}.graph.json",
-            out_dir / f"{args.run_id}.report.md",
+            out_dir / f"{stem}.tree.txt",
+            out_dir / f"{stem}.graph.json",
+            out_dir / f"{stem}.report.md",
         )
         paths[0].write_text(render_ascii_tree(graph), encoding="utf-8")
         paths[1].write_text(render_graph_json(graph), encoding="utf-8")
@@ -586,6 +594,8 @@ def _handle_export(args: argparse.Namespace, settings: Settings) -> int:
                 except OSError:
                     pass
         print(f"Exported artifacts to: {out_dir.resolve()}")
+        for p in paths:
+            print(f"  {p.name}")
         return 0
     finally:
         runtime.close()
