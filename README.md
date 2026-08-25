@@ -288,6 +288,42 @@ $env:PYTHONPATH='src'; python -m pytest -q
 
 CI runs `pytest` and `pip audit` (see `.github/workflows/ci.yml`). Dependabot is enabled for pip (`.github/dependabot.yml`).
 
+## Choosing a model
+
+Any [LiteLLM-supported](https://docs.litellm.ai/docs/providers) provider works. Add it as a named
+profile and assign it a role:
+
+```powershell
+reconrelate model add local qwen2.5:7b-instruct                 # Ollama, the default
+reconrelate model add gem   gemini-3.6-flash --input-price 0.30 --output-price 2.50
+reconrelate model add mini  gpt-5-mini                          # price already in the catalog
+reconrelate model use gem --role primary
+```
+
+A cloud model additionally needs `allow_cloud true`, per-run `--approve-cloud`, and positive
+`--max-cloud-tokens` / `--max-cloud-cost-usd` ceilings. A model with no entry in the built-in
+price catalog must supply `--input-price` / `--output-price`, so no run can spend against an
+unknown rate.
+
+**The task is harder than it looks.** The model must return a strict JSON schema *and* judge
+whether an identifier genuinely links two companies. Measured on the same fixture:
+
+| Model | Result |
+|---|---|
+| `gemini-3.6-flash` | accepted &mdash; full `atlassian.com` scan, 3 calls, **$0.007**, 3.8&ndash;6.4 s/call |
+| `qwen2.5:7b-instruct` (local Ollama) | accepted &mdash; same scan result, free, 7&ndash;14 s/call |
+| `deepseek-chat`, `llama-3.3-70b-instruct` (OpenRouter) | accepted, well under a cent |
+| `qwen3.8-max` (OpenRouter) | **invalid** &mdash; ignored the schema, despite costing ~50&times; the models that worked |
+| `minimax-m3:free` | **invalid** &mdash; invented its own JSON shape |
+| `nemotron-3-ultra:free` | abstained &mdash; correct format, but judged real evidence to be a placeholder |
+| `glm-5.2:free` | rate-limited (HTTP 429) |
+
+Free OpenRouter tiers are useful for smoke-testing the plumbing, but several either ignore the
+response schema or abstain on evidence a capable model resolves confidently. Schema validation
+catches these rather than admitting malformed output into the graph — an `invalid` disposition
+in `reconrelate report` means the model failed, not the target. Price and availability change
+often; re-check before relying on any row above.
+
 ## Supporting the project
 
 ReconRelate is free-first by design: the default profile uses only free sources and a local
