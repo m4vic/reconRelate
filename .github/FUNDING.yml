@@ -1,0 +1,11 @@
+# GitHub Sponsors config.
+#
+# To activate: enrol the account at https://github.com/sponsors, then uncomment the line
+# below. Until then GitHub simply shows no Sponsor button - nothing here breaks.
+#
+# github: m4vic
+
+# Other platforms, if you ever use them:
+# open_collective: reconrelate
+# ko_fi: yourname
+# custom: ["https://example.com/donate"]

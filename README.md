@@ -288,6 +288,30 @@ $env:PYTHONPATH='src'; python -m pytest -q
 
 CI runs `pytest` and `pip audit` (see `.github/workflows/ci.yml`). Dependabot is enabled for pip (`.github/dependabot.yml`).
 
+## Supporting the project
+
+ReconRelate is free-first by design: the default profile uses only free sources and a local
+model, and that will not change. Two specific things are currently limiting how good it can get,
+and both cost money rather than engineering time.
+
+**Reverse-WHOIS data access.** The free reverse-WHOIS path is a web search, not a real
+reverse-WHOIS database, so it is inherently noisy — noisy enough that `org`, `name`, and `ns`
+pivots are excluded from it entirely because the false positives outweighed the signal. A proper
+reverse-WHOIS provider returns registrant-indexed results instead of text matches. The
+[Whoxy adapter](docs/WHOXY.md) is already built and tested; it needs credits, not code.
+
+**A real evaluation corpus.** Quality is currently measured against exactly one labelled
+company (`automattic.com`: precision 0.889, recall 0.727). That is a real number from a real
+[offline evaluator](tests/eval/), but one case is not a claim about general accuracy. Getting to
+10–20 human-reviewed known-truth organisations is mostly patient manual research — reading
+filings and press releases and recording verifiable ground truth — and it is the single change
+that would most improve confidence in every number this tool reports.
+
+If you would like to help fund either, sponsorship is welcome via the Sponsor button (see
+[`.github/FUNDING.yml`](.github/FUNDING.yml)). Contributions of labelled evaluation cases are
+equally valuable and cost nothing — see [`tests/eval/README.md`](tests/eval/README.md) for the
+case format.
+
 ## Notes
 
 1. Providers are registered in `src/reconrelate/data_gathering/registry.py`.
