@@ -1382,7 +1382,7 @@ class RunOrchestrator:
                 continue
 
             step_counter += 1
-            cur_found = self.repository.count_nodes(run_id)
+            cur_found = self.repository.count_domain_nodes(run_id)
             self._print_status(step_counter, work_item.depth, llm_calls, cur_found, work_item.domain)
 
             if work_item.parent_domain_node_id:
@@ -1626,7 +1626,7 @@ class RunOrchestrator:
             if work_item.task_id:
                 self.repository.complete_run_task(work_item.task_id)
 
-        final_found = self.repository.count_nodes(run_id)
+        final_found = self.repository.count_domain_nodes(run_id)
         self._print_status(step_counter, work_item.depth if 'work_item' in locals() else 0, llm_calls, final_found, "", final=True)
 
         self.repository.mark_run_completed(run_id)

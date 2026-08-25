@@ -1149,6 +1149,19 @@ class GraphRepository:
         row = self.conn.execute("SELECT COUNT(*) AS c FROM nodes WHERE run_id = ?", (run_id,)).fetchone()
         return int(row["c"])
 
+    def count_domain_nodes(self, run_id: str) -> int:
+        """Domain nodes only — what a user means by "domains found".
+
+        count_nodes() includes identifier and ip nodes too, so using it for a progress counter
+        labelled "Domains Found" overstates the result (e.g. 1 domain + 1 identifier + 4 ips
+        reported as 6). Mirrors the domains_count query in get_run_summary.
+        """
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM nodes WHERE run_id = ? AND node_type = 'domain'",
+            (run_id,),
+        ).fetchone()
+        return int(row["c"])
+
     def get_run_summary(self, run_id: str) -> RunSummary:
         run = self.get_run(run_id)
         if not run:
