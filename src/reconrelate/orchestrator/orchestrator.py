@@ -1573,6 +1573,10 @@ class RunOrchestrator:
             )
             t_llm = time.perf_counter() - t_llm_start
             llm_calls = int(getattr(self.relationship_engine, "sdk_calls", llm_calls))
+            # Repaint the status line now that this domain's model call has actually happened.
+            # The line printed before the call necessarily still showed the previous domain's
+            # count, so on a single-domain run it read "LLM Calls: 0" even when a call succeeded.
+            self._print_status(step_counter, work_item.depth, llm_calls, cur_found, work_item.domain)
 
             logger.info(
                 "timing %s: gather=%.2fs llm=%.2fs total=%.2fs (%d subdomains, %d pivots)",
