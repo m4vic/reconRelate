@@ -2,7 +2,7 @@
 
 ReconRelate is a CLI-first reconnaissance relationship mapper.
 
-![ReconRelate interactive shell](docs/img/reconrelate-shell.svg)
+![ReconRelate interactive shell](docs/img/docs/img/Screenshot 2026-08-25 151329.png)
 
 Current implementation status (early alpha):
 
