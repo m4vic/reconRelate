@@ -28,6 +28,10 @@ REBUILD_PLAN.md
 PRODUCTION_IMPLEMENTATION_PLAN.md
 AGENTIC_ARCHITECTURE_PLAN.md
 
+# Readback (agent-structure): local decision/architecture record, out of version control
+# by default per the skill — can contain private wording. Tracking it is an explicit choice.
+.readback/
+
 # Editors and operating systems
 .idea/
 .vscode/
