@@ -95,6 +95,15 @@ def _looks_like_domain(token: str) -> bool:
 
 
 def run_shell() -> int:
+    """Run the interactive REPL until the user exits; returns a process exit code (0 normally,
+    or the exit code of the last command run if the caller wants to propagate it — currently
+    always 0, since the loop below only ever `return`s 0).
+
+    Callers are expected to have already checked `sys.stdin.isatty()`; this function does not
+    check it itself, so calling it over a pipe will block on `input()` waiting for EOF rather
+    than falling back to non-interactive behavior — that fallback lives at the call sites
+    (`cli/app.py`, `run.py`), not here.
+    """
     from reconrelate.cli import app as app_module
 
     # The shell already showed the banner once for this session — _handle_run's own

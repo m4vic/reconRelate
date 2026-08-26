@@ -63,11 +63,38 @@ def infer_provider(model_id: str) -> str:
 
 
 def default_key_env(provider: str) -> str:
+    """The conventional API-key env var for a built-in provider, or "" if there isn't one.
+
+    Never raises; an unknown provider (including "custom", which has no fixed key name) just
+    gets "". Callers treat "" as "no default — ask the user or leave credential display blank",
+    not as an error.
+    """
     return _DEFAULT_KEY_ENV.get(provider, "")
 
 
 @dataclass(frozen=True, slots=True)
 class ModelProfile:
+    """One named `{provider, model, endpoint, price}` bundle a role can be assigned to.
+
+    Immutable by design — `model add` always constructs a fresh instance (via `add_profile`,
+    never this constructor directly outside tests) rather than mutating one in place, so a
+    `ProfileStore` snapshot can be reasoned about without worrying a profile changed underfoot.
+
+    Field semantics that aren't obvious from the names:
+    - `key_env`: the env var this profile's credential is *expected* to live in. This module
+      never reads or exports the secret itself — the actual value already flows through
+      `config_file`'s existing `key.<NAME>` mechanism, since litellm reads provider keys
+      (`OPENAI_API_KEY`, etc.) straight from the process environment. `key_env` is display/audit
+      metadata only (see `credential_status`), not the credential.
+    - `input_usd_per_million` / `output_usd_per_million`: `None` means "rely on the built-in
+      price catalog in `model_pricing`", not "free" or "unpriced". A cloud profile with both
+      `None` is only reachable if the model is already in that catalog — `add_profile` enforces
+      this at creation time via `_require_price_envelope`.
+    - `price_verified_on`: ISO date string, "" when the two price fields are `None`. Used by
+      `model_pricing.register_price` to seed that entry's own staleness clock, independent of
+      the built-in catalog's.
+    """
+
     name: str
     provider: str
     model_id: str
@@ -102,18 +129,37 @@ class ModelProfile:
         return _litellm_model_id(self.model_id)
 
     def is_cloud(self) -> bool:
+        """True if a run must clear the cloud spend gates (--approve-cloud, allow_cloud, positive
+        token/cost ceilings) before this profile can be used. Not a statement about physical
+        infrastructure — "custom" and "gemini" are always cloud in this sense even though a
+        self-hosted "custom" endpoint might run on hardware the user owns.
+        """
         return self.provider != "ollama"
 
     def to_dict(self) -> dict[str, Any]:
+        """Plain-dict form used for JSON persistence (`ProfileStore.to_json`) and `model show
+        --json`. Field order and names are the dataclass's own — this is not a public wire
+        schema with independent versioning."""
         return asdict(self)
 
 
 @dataclass(slots=True)
 class ProfileStore:
+    """The full set of configured profiles plus the current role assignments.
+
+    A plain in-memory value object: callers load one with `load_store()`, mutate it via
+    `add_profile`/`remove_profile`/`use_profile` (which mutate the passed-in store rather than
+    returning a new one), and persist changes explicitly with `save_store()`. Nothing in this
+    module auto-saves — forgetting to call `save_store()` after a mutation is a caller bug, not
+    something this module guards against.
+    """
+
     profiles: dict[str, ModelProfile] = field(default_factory=dict)
     roles: dict[str, str] = field(default_factory=dict)  # role -> profile name
 
     def to_json(self) -> str:
+        """Serialize to the schema `from_json` reads back. Sorted keys for stable diffs of the
+        underlying config.json across saves."""
         import json
         return json.dumps({
             "schema_version": _SCHEMA_VERSION,
@@ -123,6 +169,17 @@ class ProfileStore:
 
     @classmethod
     def from_json(cls, raw: str) -> "ProfileStore":
+        """Parse a persisted store. Deliberately tolerant except for one case:
+
+        - "" or whitespace-only -> an empty store (the common case: no profiles configured yet).
+        - malformed JSON -> raises ModelProfileError. This is the one case worth failing loud on,
+          since it means the config file itself is corrupt.
+        - a profile entry with an unrecognized shape (wrong types, extra/missing dataclass
+          fields) is silently DROPPED rather than raising, so one bad entry can't make every
+          profile inaccessible.
+        - a role pointing at a profile name that doesn't exist (or was just dropped above) is
+          silently removed from `roles`, never left dangling.
+        """
         import json
         if not raw.strip():
             return cls()
@@ -151,11 +208,18 @@ class ProfileStore:
 
 
 def load_store() -> ProfileStore:
+    """Read the persisted profile store from ~/.reconrelate/config.json (or
+    RECONRELATE_CONFIG_PATH). Never raises for a missing file or missing key — returns an empty
+    store, same as a fresh install. Can raise ModelProfileError if the stored JSON is corrupt
+    (see ProfileStore.from_json)."""
     cfg = cf.load_config()
     return ProfileStore.from_json(cfg.get(PROFILES_ENV, ""))
 
 
 def save_store(store: ProfileStore) -> None:
+    """Persist `store`, replacing whatever was previously saved. Read-modify-write against the
+    config file's *current* on-disk contents (not a cached copy), so a concurrent `config set`
+    of an unrelated key is preserved rather than clobbered."""
     cfg = cf.load_config()
     cfg[PROFILES_ENV] = store.to_json()
     cf.save_config(cfg)
@@ -193,6 +257,17 @@ def add_profile(
     input_price: float | None = None,
     output_price: float | None = None,
 ) -> ModelProfile:
+    """Build a ModelProfile, add it to `store` (in place, keyed by `name` — an existing profile
+    of the same name is silently replaced, not merged), and return it. Does not call
+    `save_store`; the caller persists.
+
+    Raises ModelProfileError, without mutating `store`, if: `name` is blank after stripping;
+    `provider` isn't one of VALID_PROVIDERS; `model_id` is blank; exactly one of
+    `input_price`/`output_price` is given (both or neither is required); or the profile is a
+    cloud provider with no resolvable price (see `_require_price_envelope`) — a run cannot
+    reserve a budget for a model it has no price for, so this fails at registration time instead
+    of silently mid-run.
+    """
     name = name.strip()
     if not name:
         raise ModelProfileError("profile name is required")
@@ -222,6 +297,10 @@ def add_profile(
 
 
 def remove_profile(store: ProfileStore, name: str) -> None:
+    """Delete profile `name` from `store` in place, and clear it from any role it was assigned
+    to — a role is never left pointing at a profile that no longer exists (mirrors the
+    dangling-role cleanup ProfileStore.from_json does on load). Raises ModelProfileError, without
+    mutating `store`, if `name` isn't present. Does not call `save_store`."""
     if name not in store.profiles:
         raise ModelProfileError(f"no such profile: {name!r}")
     del store.profiles[name]
@@ -229,6 +308,11 @@ def remove_profile(store: ProfileStore, name: str) -> None:
 
 
 def use_profile(store: ProfileStore, name: str, role: str = "primary") -> None:
+    """Assign profile `name` to `role` in `store`, in place, replacing whatever was assigned to
+    that role before. Raises ModelProfileError, without mutating `store`, if `role` isn't
+    "primary"/"fast" or `name` isn't a profile already in `store` (add it first). Does not call
+    `save_store`, and does not check credentials or spend gates — see `credential_status` and the
+    cloud-approval flags in `core/factory.py` for those."""
     if role not in VALID_ROLES:
         raise ModelProfileError(f"--role must be one of {', '.join(VALID_ROLES)}")
     if name not in store.profiles:
@@ -237,6 +321,9 @@ def use_profile(store: ProfileStore, name: str, role: str = "primary") -> None:
 
 
 def active_profile(store: ProfileStore, role: str) -> ModelProfile | None:
+    """The profile currently assigned to `role`, or None if nothing is assigned (including an
+    unrecognized `role` string) — never raises. `None` is the normal, expected state before the
+    user has run `model use`."""
     return store.profiles.get(store.roles.get(role, ""))
 
 
@@ -291,6 +378,9 @@ def credential_status(profile: ModelProfile) -> tuple[str, bool]:
 
 
 def render_list(store: ProfileStore) -> str:
+    """Human-readable table for `model list` / `config show` — never JSON, never raises, pure
+    (reads `store` and, via `credential_status`, the environment and config file for
+    presence-only key checks; makes no changes to either)."""
     if not store.profiles:
         return "No model profiles configured. Add one with `reconrelate model add`."
     lines = ["Model profiles:"]
