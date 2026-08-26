@@ -2,8 +2,10 @@
 
 ReconRelate is a CLI-first reconnaissance relationship mapper.
 
-![ReconRelate interactive shell](docs/img/Screenshot 2026-08-25 151329.png)
 
+<p align="center">
+  <img src="docs/img/Screenshot 2026-08-25 151329.png" width="820" alt="">
+</p>
 Current implementation status (early alpha):
 
 1. `run` executes a deterministic-first pivot workflow and can escalate ambiguous evidence to a configured local or cloud LLM.
