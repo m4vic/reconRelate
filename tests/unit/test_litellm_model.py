@@ -54,6 +54,23 @@ def test_ollama_calls_disable_thinking_mode() -> None:
 
     assert captured["model"].startswith("ollama/")
     assert captured["think"] is False
+    # Do not allow Ollama's small server default to silently truncate the system prompt.
+    from reconrelate.llm_orchestration.prompt_builder import OLLAMA_NUM_CTX
+    assert captured["num_ctx"] == OLLAMA_NUM_CTX
+
+
+def test_local_evidence_budget_fits_the_explicit_ollama_window() -> None:
+    """The evidence limit and the request's Ollama context setting must stay coupled."""
+    from reconrelate.llm_orchestration.prompt_builder import (
+        MAX_LLM_CONTEXT_CHARS,
+        OLLAMA_NUM_CTX,
+        SYSTEM_PROMPT,
+    )
+
+    # This is intentionally conservative: chars/4 understates JSON and template token counts,
+    # hence prompt_builder also reserves 256 template tokens.
+    worst_case_tokens = len(SYSTEM_PROMPT) // 4 + MAX_LLM_CONTEXT_CHARS // 4 + 512 + 256
+    assert worst_case_tokens <= OLLAMA_NUM_CTX
 
 
 def test_cloud_calls_do_not_send_the_ollama_think_flag() -> None:

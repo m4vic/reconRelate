@@ -33,6 +33,7 @@ from reconrelate.llm_orchestration.deterministic_scorer import (
 )
 from reconrelate.llm_orchestration.prompt_builder import (
     MAX_LLM_CONTEXT_CHARS,
+    OLLAMA_NUM_CTX,
     SYSTEM_PROMPT,
     build_user_message,
     compact_context_for_llm,
@@ -205,6 +206,11 @@ class LLMClient:
         if litellm_model.startswith("ollama/"):
             kwargs["api_base"] = self.api_base
             kwargs["num_predict"] = 512
+            # Ollama otherwise defaults to a ~2048-token window and truncates from the START of
+            # the prompt - silently discarding SYSTEM_PROMPT's filtering rules on exactly the
+            # large-evidence domains that need them. The evidence budget in prompt_builder is
+            # derived from this same constant, so the two cannot drift apart.
+            kwargs["num_ctx"] = OLLAMA_NUM_CTX
             # Disable Ollama's reasoning mode. Qwen3-family models think by default and spend
             # the entire token budget in the `thinking` field, returning EMPTY content - so a
             # perfectly capable model looks like it always emits invalid output. Measured on

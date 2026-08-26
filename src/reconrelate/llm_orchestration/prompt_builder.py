@@ -10,8 +10,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Serialized JSON size budget for one relationship call (~5–6k tokens heuristic).
-MAX_LLM_CONTEXT_CHARS = 22_000
+# Ollama's own default context window is ~2048 tokens regardless of what the model was trained
+# for, and it truncates from the START of the prompt - which is exactly where SYSTEM_PROMPT and
+# its rules about registrar emails, privacy shields and generic nameservers live. Sending more
+# than the window silently drops those rules on precisely the large-evidence domains that need
+# them most. Measured: a ~7,700-token prompt was cut to 2,050 tokens with no error raised.
+#
+# So the window is set explicitly (OLLAMA_NUM_CTX) and the evidence budget is DERIVED from it
+# below, rather than being an independent constant that could quietly exceed it.
+#
+# 4096 is chosen for a 12 GB card: it leaves room for a ~9 GB 14B model plus KV cache, and is
+# still ~5x the largest prompt observed in real runs (median 736 tokens, max 798).
+OLLAMA_NUM_CTX = 4_096
+
+# Reserved inside the window: the system prompt, the model's own reply, and slack for chat
+# template tokens and tokenizer variance (chars/4 underestimates on JSON punctuation).
+_RESERVED_OUTPUT_TOKENS = 512
+_RESERVED_TEMPLATE_TOKENS = 256
+
+
+def _evidence_char_budget(num_ctx: int = OLLAMA_NUM_CTX) -> int:
+    """Chars of evidence that fit the window once fixed costs are reserved."""
+    system_tokens = len(SYSTEM_PROMPT) // 4
+    usable = num_ctx - system_tokens - _RESERVED_OUTPUT_TOKENS - _RESERVED_TEMPLATE_TOKENS
+    return max(2_000, usable * 4)
 
 SYSTEM_PROMPT = """You are an elite OSINT analyst specializing in corporate infrastructure mapping and relationship intelligence.
 
@@ -39,6 +61,11 @@ no pivots. Otherwise return at least one pivot:
 {"abstain": false, "abstention_reason": null, "pivots": [{"id_type": "email", "value": "admin@example.com", "score": 0.95, "reason": "corporate registrant email, unique to this entity"}]}
 
 Valid id_type values: email, org, name, ns, phone"""
+
+
+# Derived from the context window above, so the evidence budget can never silently exceed what
+# the model will actually read. Kept under its historical name because callers import it.
+MAX_LLM_CONTEXT_CHARS = _evidence_char_budget()
 
 
 def json_context_size(obj: dict) -> int:

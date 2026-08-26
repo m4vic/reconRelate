@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import time
@@ -1262,6 +1263,45 @@ class RunOrchestrator:
             sys.stderr.write("\n")
         sys.stderr.flush()
 
+    @contextlib.asynccontextmanager
+    async def _live_progress(self, step: int, depth: int, llm_calls: int, found: int, domain: str, label: str):
+        """Animate the status line while a long await is in flight.
+
+        A model call on a local 14B takes 10-25s, during which the status line was completely
+        static - indistinguishable from a hang. This ticks an elapsed counter so the run visibly
+        stays alive. Only animates on a TTY: piped or redirected output would otherwise
+        accumulate hundreds of duplicate status lines in a log.
+        """
+        import sys as _sys
+
+        if not _sys.stderr.isatty():
+            yield
+            return
+
+        async def tick() -> None:
+            spin = "-\\|/"
+            started = time.perf_counter()
+            i = 0
+            try:
+                while True:
+                    await asyncio.sleep(0.4)
+                    elapsed = time.perf_counter() - started
+                    self._print_status(
+                        step, depth, llm_calls, found,
+                        f"{domain} [{label} {spin[i % 4]} {elapsed:.0f}s]",
+                    )
+                    i += 1
+            except asyncio.CancelledError:
+                pass
+
+        ticker = asyncio.create_task(tick())
+        try:
+            yield
+        finally:
+            ticker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await ticker
+
     async def run(
         self,
         root_domain: str,
@@ -1572,14 +1612,17 @@ class RunOrchestrator:
 
             # ── Relationship Engine Pivot Selection ─────────────────────
             t_llm_start = time.perf_counter()
-            pivots = await self.relationship_engine.select_pivots(
-                domain=work_item.domain,
-                whois=whois_record,
-                basic_intel=basic_intel,
-                top_k=resolved_pivot_top_k,
-                subdomains=subdomains,
-                run_metadata={"run_id": run_id, "depth": work_item.depth},
-            )
+            async with self._live_progress(
+                step_counter, work_item.depth, llm_calls, cur_found, work_item.domain, "analyzing"
+            ):
+                pivots = await self.relationship_engine.select_pivots(
+                    domain=work_item.domain,
+                    whois=whois_record,
+                    basic_intel=basic_intel,
+                    top_k=resolved_pivot_top_k,
+                    subdomains=subdomains,
+                    run_metadata={"run_id": run_id, "depth": work_item.depth},
+                )
             t_llm = time.perf_counter() - t_llm_start
             llm_calls = int(getattr(self.relationship_engine, "sdk_calls", llm_calls))
             # Repaint the status line now that this domain's model call has actually happened.
