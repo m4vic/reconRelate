@@ -46,7 +46,7 @@ reconrelate eval out\<run_id>.graph.json --case tests\eval\cases\automattic-v1.j
 
 This is an **early alpha**: the evaluation corpus is small and quality is measured, not yet
 release-gated. See `tests/eval/BASELINE.md` for the baseline and its known misses, and
-`PRODUCTION_IMPLEMENTATION_PLAN.md` for what production-grade requires.
+`SYSTEM_DESIGN.md` for the architecture and known weaknesses behind that number.
 
 ## Quick Start
 
