@@ -27,3 +27,52 @@ def test_namespaced_ollama_model_is_not_mistaken_for_cloud_provider() -> None:
 
 def test_explicit_known_cloud_provider_prefix_is_preserved() -> None:
     assert _litellm_model_id("openrouter/vendor/model") == "openrouter/vendor/model"
+
+
+def test_ollama_calls_disable_thinking_mode() -> None:
+    """Qwen3-family models think by default and return EMPTY content, spending the whole
+    budget in the `thinking` field - a capable model then looks permanently broken.
+    Measured on qwen3.5:9b: think=True -> 3815 chars thinking / 0 content; think=False ->
+    valid schema JSON. Verified a no-op for non-thinking models.
+    """
+    import asyncio
+    from unittest.mock import patch
+
+    from reconrelate.llm_orchestration.relationship_engine import LLMClient
+
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("stop here - we only care about the kwargs")
+
+    client = LLMClient(model="qwen3.5:9b")
+    with patch("litellm.completion", side_effect=fake_completion):
+        asyncio.run(client._call_model(
+            "acme.com", {"domain": "acme.com"}, None, model="qwen3.5:9b", task="relationship_pivot"
+        ))
+
+    assert captured["model"].startswith("ollama/")
+    assert captured["think"] is False
+
+
+def test_cloud_calls_do_not_send_the_ollama_think_flag() -> None:
+    # `think` is Ollama-specific; forwarding it to OpenAI/Gemini/Anthropic would be rejected.
+    import asyncio
+    from unittest.mock import patch
+
+    from reconrelate.llm_orchestration.relationship_engine import LLMClient
+
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("stop here")
+
+    client = LLMClient(model="gpt-5-mini")
+    with patch("litellm.completion", side_effect=fake_completion):
+        asyncio.run(client._call_model(
+            "acme.com", {"domain": "acme.com"}, None, model="gpt-5-mini", task="relationship_pivot"
+        ))
+
+    assert "think" not in captured

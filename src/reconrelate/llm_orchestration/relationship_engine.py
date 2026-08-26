@@ -205,6 +205,14 @@ class LLMClient:
         if litellm_model.startswith("ollama/"):
             kwargs["api_base"] = self.api_base
             kwargs["num_predict"] = 512
+            # Disable Ollama's reasoning mode. Qwen3-family models think by default and spend
+            # the entire token budget in the `thinking` field, returning EMPTY content - so a
+            # perfectly capable model looks like it always emits invalid output. Measured on
+            # qwen3.5:9b: think=True gave 3815 chars of thinking and 0 chars of content;
+            # think=False gave valid schema-conforming JSON. This task is structured extraction,
+            # not reasoning, so thinking buys nothing even where it does not break the output.
+            # Verified to be a no-op for non-thinking models (qwen2.5, llama3.1).
+            kwargs["think"] = False
         elif self.custom_api_base:
             kwargs["api_base"] = self.custom_api_base
 
