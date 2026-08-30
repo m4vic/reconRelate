@@ -18,7 +18,7 @@ dependencies = [
   "litellm>=1.83.0,<2",
   "pydantic>=2.9.0,<3",
   "aiohttp>=3.9,<4",
-  "rich>=13.7,<15",
+  "rich>=13.7,<16",
 ]
 
 [project.optional-dependencies]
